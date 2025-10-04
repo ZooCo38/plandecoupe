@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Application de génération de plans de coupe optimisés pour menuisiers">
+    <title>Plan de Coupe - Menuiserie</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Plan de Coupe Menuiserie</h1>
+        <p class="subtitle">Optimisez vos découpes de panneaux</p>
+
+        <div id="summary" class="summary-container" style="display: none;"></div>
+
+        <div class="grid">
+            <div>
+                <div class="card">
+                    <h2>Informations du Projet</h2>
+                    <div class="form-group">
+                        <label for="projectTitle">Titre du projet</label>
+                        <input type="text" id="projectTitle" name="projectTitle" placeholder="Ex: Meuble TV salon" aria-label="Titre du projet" style="width: 100%; padding: 0.625rem 0.875rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.875rem;">
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top: 1rem;">
+                    <h2>Configuration du Panneau</h2>
+                    <div class="form-group">
+                        <label for="panelWidth">Dimensions du panneau (mm)</label>
+                        <div class="input-group">
+                            <div>
+                                <input type="number" id="panelWidth" name="panelWidth" placeholder="Largeur" value="2500" min="1" aria-label="Largeur du panneau">
+                            </div>
+                            <div>
+                                <input type="number" id="panelHeight" name="panelHeight" placeholder="Hauteur" value="1250" min="1" aria-label="Hauteur du panneau">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="panelThickness">Épaisseur du panneau (mm)</label>
+                        <input type="number" id="panelThickness" name="panelThickness" placeholder="Ex: 18" value="18" min="1" step="0.1" aria-label="Épaisseur du panneau">
+                    </div>
+                    <div class="form-group">
+                        <label for="bladeThickness">Épaisseur de lame (mm)</label>
+                        <input type="number" id="bladeThickness" name="bladeThickness" placeholder="Ex: 3" value="3" min="0" step="0.1" aria-label="Épaisseur de lame de scie">
+                    </div>
+                    <div class="form-group">
+                        <label for="panelCost">Prix du panneau (€) - Optionnel</label>
+                        <input type="number" id="panelCost" name="panelCost" placeholder="Ex: 45.50" min="0" step="0.01" aria-label="Prix unitaire du panneau">
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top: 1rem;">
+                    <h2>Ajouter une Pièce</h2>
+                    <div class="form-group">
+                        <label for="pieceWidth">Dimensions de la pièce (mm)</label>
+                        <div class="input-group">
+                            <div>
+                                <input type="number" id="pieceWidth" name="pieceWidth" placeholder="Largeur" min="1" aria-label="Largeur de la pièce">
+                            </div>
+                            <div>
+                                <input type="number" id="pieceHeight" name="pieceHeight" placeholder="Hauteur" min="1" aria-label="Hauteur de la pièce">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="pieceQuantity">Quantité</label>
+                        <input type="number" id="pieceQuantity" name="pieceQuantity" placeholder="Nombre de pièces" value="1" min="1" aria-label="Quantité de pièces">
+                    </div>
+                    <button type="button" class="btn-primary" onclick="addPiece()">Ajouter la pièce</button>
+
+                    <div class="pieces-list" id="piecesList"></div>
+                </div>
+
+                <button type="button" class="btn-success" onclick="generateCutPlan()">Générer le Plan de Coupe</button>
+
+                <div class="card" style="margin-top: 1rem;">
+                    <h2>Historique des Plans</h2>
+                    <div id="historyList" class="history-list"></div>
+                    <button type="button" class="btn-danger" onclick="clearHistory()" style="width: 100%; margin-top: 1rem;">Effacer l'historique</button>
+                </div>
+            </div>
+
+            <div>
+                <div class="canvas-container">
+                    <div class="canvas-header">
+                        <h2>Schéma de Coupe</h2>
+                        <div id="panelNavigation" class="panel-navigation" style="display: none;"></div>
+                    </div>
+                    <div id="canvasWrapper">
+                        <div class="empty-state">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            <p>Ajoutez des pièces et générez le plan de coupe</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="cut-list" id="cutList" style="display: none;">
+                    <h2>Instructions de Coupe</h2>
+                    <button type="button" class="btn-pdf" onclick="generatePDF()">Télécharger en PDF</button>
+                    <div id="cutSteps" style="margin-top: 1rem;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
