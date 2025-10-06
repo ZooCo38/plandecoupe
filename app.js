@@ -7,13 +7,20 @@ let pieces = [];
 let cutPlan = null;
 let panels = [];
 let currentPanelIndex = 0;
+let allLayouts = [];
+let currentLayoutIndex = 0;
 
 /**
  * Charge l'historique depuis le localStorage
  */
 function loadHistory() {
-    const history = localStorage.getItem('cutPlanHistory');
-    return history ? JSON.parse(history) : [];
+    try {
+        const history = localStorage.getItem('cutPlanHistory');
+        return history ? JSON.parse(history) : [];
+    } catch (error) {
+        console.error('Erreur lors du chargement de l\'historique:', error);
+        return [];
+    }
 }
 
 /**
@@ -21,7 +28,21 @@ function loadHistory() {
  * @param {Array} history - L'historique à sauvegarder
  */
 function saveHistory(history) {
-    localStorage.setItem('cutPlanHistory', JSON.stringify(history));
+    try {
+        localStorage.setItem('cutPlanHistory', JSON.stringify(history));
+    } catch (error) {
+        console.error('Erreur lors de la sauvegarde de l\'historique:', error);
+        if (error.name === 'QuotaExceededError') {
+            alert('L\'espace de stockage est plein. Certains projets anciens vont être supprimés.');
+            // Garder seulement les 10 derniers projets
+            const reducedHistory = history.slice(0, 10);
+            try {
+                localStorage.setItem('cutPlanHistory', JSON.stringify(reducedHistory));
+            } catch (e) {
+                alert('Impossible de sauvegarder l\'historique. Veuillez vider votre historique.');
+            }
+        }
+    }
 }
 
 /**
@@ -39,6 +60,7 @@ function addToHistory(planData) {
         panelThickness: parseFloat(document.getElementById('panelThickness').value),
         bladeThickness: parseFloat(document.getElementById('bladeThickness').value),
         panelCost: parseFloat(document.getElementById('panelCost').value) || 0,
+        safetyMargin: parseFloat(document.getElementById('safetyMargin').value) || 0,
         pieces: pieces.slice(),
         panels: planData,
         totalPanels: planData.length,
@@ -108,6 +130,7 @@ function loadFromHistory(id) {
     document.getElementById('panelThickness').value = entry.panelThickness || 18;
     document.getElementById('bladeThickness').value = entry.bladeThickness;
     document.getElementById('panelCost').value = entry.panelCost || '';
+    document.getElementById('safetyMargin').value = entry.safetyMargin || 0;
 
     pieces = entry.pieces.slice();
     panels = entry.panels;
@@ -134,6 +157,7 @@ function editFromHistory(id) {
     document.getElementById('panelThickness').value = entry.panelThickness || 18;
     document.getElementById('bladeThickness').value = entry.bladeThickness;
     document.getElementById('panelCost').value = entry.panelCost || '';
+    document.getElementById('safetyMargin').value = entry.safetyMargin || 0;
 
     pieces = entry.pieces.slice();
     updatePiecesList();
@@ -168,26 +192,69 @@ function clearHistory() {
 // Charger l'historique au démarrage
 window.addEventListener('DOMContentLoaded', function() {
     displayHistory();
+
+    // Ajouter des écouteurs pour les options d'affichage
+    const showCutLines = document.getElementById('showCutLines');
+    const showWaste = document.getElementById('showWaste');
+
+    if (showCutLines) {
+        showCutLines.addEventListener('change', function() {
+            if (panels && panels.length > 0) {
+                showPanel(currentPanelIndex);
+            }
+        });
+    }
+
+    if (showWaste) {
+        showWaste.addEventListener('change', function() {
+            if (panels && panels.length > 0) {
+                showPanel(currentPanelIndex);
+            }
+        });
+    }
 });
 
 /**
  * Ajoute une pièce à la liste
  */
 function addPiece() {
+    const name = document.getElementById('pieceName').value.trim();
     const width = parseInt(document.getElementById('pieceWidth').value);
     const height = parseInt(document.getElementById('pieceHeight').value);
     const quantity = parseInt(document.getElementById('pieceQuantity').value);
 
     if (!width || !height || !quantity) {
-        alert('Veuillez remplir tous les champs');
+        alert('Veuillez remplir tous les champs obligatoires (dimensions et quantité)');
+        return;
+    }
+
+    if (width <= 0 || height <= 0 || quantity <= 0) {
+        alert('Les dimensions et la quantité doivent être supérieures à 0');
+        return;
+    }
+
+    if (quantity > 1000) {
+        alert('La quantité ne peut pas dépasser 1000 pièces');
+        return;
+    }
+
+    if (pieces.length + quantity > 5000) {
+        alert('Nombre maximum de pièces atteint (5000). Veuillez générer le plan actuel avant d\'ajouter plus de pièces.');
         return;
     }
 
     for (let i = 0; i < quantity; i++) {
-        pieces.push({ width: width, height: height, id: Date.now() + i });
+        const pieceName = name ? (quantity > 1 ? name + '.' + (i + 1) : name) : null;
+        pieces.push({
+            width: width,
+            height: height,
+            name: pieceName,
+            id: Date.now() + i
+        });
     }
 
     updatePiecesList();
+    document.getElementById('pieceName').value = '';
     document.getElementById('pieceWidth').value = '';
     document.getElementById('pieceHeight').value = '';
     document.getElementById('pieceQuantity').value = '1';
@@ -213,9 +280,20 @@ function updatePiecesList() {
     }
 
     const grouped = pieces.reduce(function(acc, piece, index) {
-        const key = piece.width + 'x' + piece.height;
+        // Extraire le nom de base sans le suffixe numérique
+        let baseName = piece.name;
+        if (baseName && baseName.match(/\.\d+$/)) {
+            baseName = baseName.replace(/\.\d+$/, '');
+        }
+        const key = (baseName || '') + '_' + piece.width + 'x' + piece.height;
         if (!acc[key]) {
-            acc[key] = { width: piece.width, height: piece.height, count: 0, indices: [] };
+            acc[key] = {
+                width: piece.width,
+                height: piece.height,
+                name: baseName,
+                count: 0,
+                indices: []
+            };
         }
         acc[key].count++;
         acc[key].indices.push(index);
@@ -223,8 +301,10 @@ function updatePiecesList() {
     }, {});
 
     list.innerHTML = Object.values(grouped).map(function(group) {
+        const nameLabel = group.name ? '<div style="font-weight: 600; color: var(--primary); font-size: 0.8125rem;">' + group.name + '</div>' : '';
         return '<div class="piece-item">' +
                 '<div>' +
+                    nameLabel +
                     '<div class="piece-info">' + group.width + ' × ' + group.height + ' mm</div>' +
                     '<div class="piece-count">' + group.count + ' pièce(s)</div>' +
                 '</div>' +
@@ -246,37 +326,204 @@ function generateCutPlan() {
     const panelHeight = parseInt(document.getElementById('panelHeight').value);
     const bladeThickness = parseFloat(document.getElementById('bladeThickness').value);
 
-    if (!panelWidth || !panelHeight) {
-        alert('Veuillez définir les dimensions du panneau');
+    if (!panelWidth || !panelHeight || bladeThickness === null || bladeThickness === undefined || isNaN(bladeThickness)) {
+        alert('Veuillez définir toutes les dimensions du panneau et l\'épaisseur de lame');
         return;
     }
 
-    panels = optimizeMultiPanelCutPlan(pieces, panelWidth, panelHeight, bladeThickness);
-    currentPanelIndex = 0;
+    if (panelWidth <= 0 || panelHeight <= 0) {
+        alert('Les dimensions du panneau doivent être supérieures à 0');
+        return;
+    }
 
-    addToHistory(panels);
-    displaySummary(panels);
-    showPanel(currentPanelIndex);
+    if (bladeThickness < 0) {
+        alert('L\'épaisseur de lame ne peut pas être négative');
+        return;
+    }
+
+    if (bladeThickness > 20) {
+        alert('L\'épaisseur de lame semble anormalement élevée (>20mm). Veuillez vérifier.');
+        return;
+    }
+
+    const safetyMargin = parseFloat(document.getElementById('safetyMargin').value) || 0;
+
+    if (safetyMargin < 0 || safetyMargin > 15) {
+        alert('La marge de sécurité doit être entre 0 et 15mm');
+        return;
+    }
+
+    // Appliquer la marge de sécurité aux dimensions du panneau
+    const effectivePanelWidth = panelWidth - (2 * safetyMargin);
+    const effectivePanelHeight = panelHeight - (2 * safetyMargin);
+
+    if (effectivePanelWidth <= 0 || effectivePanelHeight <= 0) {
+        alert('La marge de sécurité est trop grande par rapport aux dimensions du panneau');
+        return;
+    }
+
+    // Vérifier que toutes les pièces rentrent dans le panneau
+    for (let i = 0; i < pieces.length; i++) {
+        const piece = pieces[i];
+        const fitsNormally = piece.width <= effectivePanelWidth && piece.height <= effectivePanelHeight;
+        const fitsRotated = piece.height <= effectivePanelWidth && piece.width <= effectivePanelHeight;
+
+        if (!fitsNormally && !fitsRotated) {
+            const pieceName = piece.name ? ' "' + piece.name + '"' : '';
+            alert('La pièce' + pieceName + ' (' + piece.width + '×' + piece.height + 'mm) est trop grande pour le panneau effectif (' + effectivePanelWidth + '×' + effectivePanelHeight + 'mm avec marge)');
+            return;
+        }
+    }
+
+    try {
+        // Générer plusieurs dispositions avec différentes stratégies
+        allLayouts = generateMultipleLayouts(pieces, effectivePanelWidth, effectivePanelHeight, bladeThickness, safetyMargin, panelWidth, panelHeight);
+        currentLayoutIndex = 0;
+
+        // Utiliser la meilleure disposition par défaut
+        panels = allLayouts[0].panels;
+        currentPanelIndex = 0;
+
+        addToHistory(panels);
+        displaySummary(panels);
+        showPanel(currentPanelIndex);
+        updateLayoutNavigation();
+    } catch (error) {
+        alert('Erreur lors de la génération du plan : ' + error.message);
+        console.error(error);
+    }
+}
+
+/**
+ * Génère plusieurs dispositions avec différentes stratégies
+ * @param {Array} pieces - Liste des pièces
+ * @param {number} panelWidth - Largeur effective
+ * @param {number} panelHeight - Hauteur effective
+ * @param {number} blade - Épaisseur de lame
+ * @param {number} safetyMargin - Marge de sécurité
+ * @param {number} fullPanelWidth - Largeur totale
+ * @param {number} fullPanelHeight - Hauteur totale
+ * @returns {Array} Liste de layouts avec score
+ */
+function generateMultipleLayouts(pieces, panelWidth, panelHeight, blade, safetyMargin, fullPanelWidth, fullPanelHeight) {
+    const strategies = [
+        { name: 'Surface décroissante', sorter: function(a, b) { return (b.width * b.height) - (a.width * a.height); } },
+        { name: 'Largeur décroissante', sorter: function(a, b) { return b.width - a.width; } },
+        { name: 'Hauteur décroissante', sorter: function(a, b) { return b.height - a.height; } },
+        { name: 'Périmètre décroissant', sorter: function(a, b) { return (b.width + b.height) - (a.width + a.height); } },
+        { name: 'Ratio L/H optimal', sorter: function(a, b) {
+            const ratioA = Math.max(a.width, a.height) / Math.min(a.width, a.height);
+            const ratioB = Math.max(b.width, b.height) / Math.min(b.width, b.height);
+            return ratioB - ratioA;
+        }}
+    ];
+
+    const layouts = [];
+
+    for (let i = 0; i < strategies.length; i++) {
+        const strategy = strategies[i];
+        const sortedPieces = pieces.slice().sort(strategy.sorter);
+
+        try {
+            const panels = optimizeMultiPanelCutPlan(sortedPieces, panelWidth, panelHeight, blade, safetyMargin, fullPanelWidth, fullPanelHeight);
+            const score = evaluateLayout(panels, panelWidth, panelHeight);
+
+            layouts.push({
+                panels: panels,
+                strategy: strategy.name,
+                score: score,
+                wastePercentage: score.wastePercentage,
+                usableWasteCount: score.usableWasteCount,
+                totalWasteArea: score.totalWasteArea
+            });
+        } catch (error) {
+            console.error('Erreur avec stratégie ' + strategy.name + ':', error);
+        }
+    }
+
+    // Trier par score (meilleur en premier)
+    layouts.sort(function(a, b) {
+        // Priorité 1: Moins de panneaux
+        if (a.panels.length !== b.panels.length) {
+            return a.panels.length - b.panels.length;
+        }
+        // Priorité 2: Plus de chutes exploitables
+        if (a.usableWasteCount !== b.usableWasteCount) {
+            return b.usableWasteCount - a.usableWasteCount;
+        }
+        // Priorité 3: Moins de déchets total
+        return a.wastePercentage - b.wastePercentage;
+    });
+
+    // Filtrer les dispositions uniques (éviter les doublons)
+    const uniqueLayouts = [];
+    for (let i = 0; i < layouts.length; i++) {
+        const layout = layouts[i];
+        let isDuplicate = false;
+
+        for (let j = 0; j < uniqueLayouts.length; j++) {
+            if (areLayoutsIdentical(layout.panels, uniqueLayouts[j].panels)) {
+                isDuplicate = true;
+                break;
+            }
+        }
+
+        if (!isDuplicate) {
+            uniqueLayouts.push(layout);
+        }
+    }
+
+    return uniqueLayouts;
+}
+
+/**
+ * Vérifie si deux dispositions sont identiques
+ * @param {Array} panels1 - Première disposition
+ * @param {Array} panels2 - Deuxième disposition
+ * @returns {boolean} True si identiques
+ */
+function areLayoutsIdentical(panels1, panels2) {
+    if (panels1.length !== panels2.length) return false;
+
+    for (let p = 0; p < panels1.length; p++) {
+        const panel1 = panels1[p];
+        const panel2 = panels2[p];
+
+        if (panel1.pieces.length !== panel2.pieces.length) return false;
+
+        // Comparer les positions des pièces
+        for (let i = 0; i < panel1.pieces.length; i++) {
+            const piece1 = panel1.pieces[i];
+            const piece2 = panel2.pieces[i];
+
+            if (piece1.x !== piece2.x || piece1.y !== piece2.y ||
+                piece1.width !== piece2.width || piece1.height !== piece2.height) {
+                return false;
+            }
+        }
+    }
+
+    return true;
 }
 
 /**
  * Optimise le placement des pièces sur plusieurs panneaux si nécessaire
  * Utilise une approche de Best Fit Decreasing pour minimiser le nombre de panneaux
- * @param {Array} pieces - Liste des pièces à placer
- * @param {number} panelWidth - Largeur du panneau
- * @param {number} panelHeight - Hauteur du panneau
+ * @param {Array} pieces - Liste des pièces à placer (déjà triées)
+ * @param {number} panelWidth - Largeur effective du panneau
+ * @param {number} panelHeight - Hauteur effective du panneau
  * @param {number} blade - Épaisseur de la lame de scie
+ * @param {number} safetyMargin - Marge de sécurité
+ * @param {number} fullPanelWidth - Largeur totale du panneau
+ * @param {number} fullPanelHeight - Hauteur totale du panneau
  * @returns {Array} Liste des panneaux avec leurs pièces
  */
-function optimizeMultiPanelCutPlan(pieces, panelWidth, panelHeight, blade) {
-    const sortedPieces = pieces.slice().sort(function(a, b) {
-        return (b.width * b.height) - (a.width * a.height);
-    });
-
+function optimizeMultiPanelCutPlan(pieces, panelWidth, panelHeight, blade, safetyMargin, fullPanelWidth, fullPanelHeight) {
+    // Les pièces sont déjà triées, ne pas re-trier
     const panels = [];
 
-    for (let i = 0; i < sortedPieces.length; i++) {
-        const piece = sortedPieces[i];
+    for (let i = 0; i < pieces.length; i++) {
+        const piece = pieces[i];
         let bestPanelIndex = -1;
         let bestResult = null;
         let bestWaste = Infinity;
@@ -299,11 +546,16 @@ function optimizeMultiPanelCutPlan(pieces, panelWidth, panelHeight, blade) {
             const newPanel = {
                 pieces: [],
                 spaces: [{ x: 0, y: 0, width: panelWidth, height: panelHeight }],
-                panelNumber: panels.length + 1
+                panelNumber: panels.length + 1,
+                safetyMargin: safetyMargin,
+                fullWidth: fullPanelWidth,
+                fullHeight: fullPanelHeight
             };
             const result = tryPlacePieceOnPanel(newPanel, piece, panelWidth, panelHeight, blade);
             if (result.success) {
                 panels.push(result.panel);
+            } else {
+                throw new Error('Impossible de placer la pièce ' + (piece.name || piece.width + 'x' + piece.height));
             }
         }
     }
@@ -311,9 +563,103 @@ function optimizeMultiPanelCutPlan(pieces, panelWidth, panelHeight, blade) {
     return panels.map(function(p) {
         return {
             pieces: p.pieces,
-            panelNumber: p.panelNumber
+            panelNumber: p.panelNumber,
+            safetyMargin: safetyMargin,
+            fullWidth: fullPanelWidth,
+            fullHeight: fullPanelHeight,
+            effectiveWidth: panelWidth,
+            effectiveHeight: panelHeight
         };
     });
+}
+
+/**
+ * Évalue la qualité d'une disposition
+ * @param {Array} panels - Liste des panneaux
+ * @param {number} panelWidth - Largeur effective
+ * @param {number} panelHeight - Hauteur effective
+ * @returns {Object} Score avec métriques
+ */
+function evaluateLayout(panels, panelWidth, panelHeight) {
+    let totalArea = 0;
+    let usedArea = 0;
+    let usableWasteCount = 0;
+    const minUsableSize = 200; // Taille minimale pour qu'une chute soit exploitable (200x200mm)
+
+    for (let p = 0; p < panels.length; p++) {
+        const panel = panels[p];
+        const panelArea = panelWidth * panelHeight;
+        totalArea += panelArea;
+
+        let panelUsedArea = 0;
+        for (let i = 0; i < panel.pieces.length; i++) {
+            panelUsedArea += panel.pieces[i].width * panel.pieces[i].height;
+        }
+        usedArea += panelUsedArea;
+
+        // Calculer les chutes exploitables
+        const wasteArea = panelArea - panelUsedArea;
+        if (wasteArea > 0) {
+            // Analyser les espaces disponibles pour voir s'il y a des chutes exploitables
+            const usedZones = panel.pieces.map(function(p) {
+                return { x: p.x, y: p.y, width: p.width, height: p.height };
+            });
+
+            // Chercher des rectangles exploitables dans les espaces libres
+            const exploitableWastes = findExploitableWaste(usedZones, panelWidth, panelHeight, minUsableSize);
+            usableWasteCount += exploitableWastes.length;
+        }
+    }
+
+    const wastePercentage = ((totalArea - usedArea) / totalArea) * 100;
+
+    return {
+        wastePercentage: wastePercentage,
+        usableWasteCount: usableWasteCount,
+        totalWasteArea: totalArea - usedArea,
+        totalArea: totalArea,
+        usedArea: usedArea
+    };
+}
+
+/**
+ * Trouve les chutes exploitables dans un panneau
+ * @param {Array} usedZones - Zones occupées
+ * @param {number} panelWidth - Largeur du panneau
+ * @param {number} panelHeight - Hauteur du panneau
+ * @param {number} minSize - Taille minimale exploitable
+ * @returns {Array} Liste des chutes exploitables
+ */
+function findExploitableWaste(usedZones, panelWidth, panelHeight, minSize) {
+    const exploitable = [];
+
+    // Tester des zones potentielles (simplifié)
+    const testZones = [
+        { x: 0, y: 0, width: panelWidth, height: panelHeight }
+    ];
+
+    for (let t = 0; t < testZones.length; t++) {
+        const zone = testZones[t];
+        let isUsable = zone.width >= minSize && zone.height >= minSize;
+
+        // Vérifier si la zone chevauche une pièce
+        for (let u = 0; u < usedZones.length; u++) {
+            const used = usedZones[u];
+            if (!(zone.x + zone.width <= used.x ||
+                  zone.x >= used.x + used.width ||
+                  zone.y + zone.height <= used.y ||
+                  zone.y >= used.y + used.height)) {
+                isUsable = false;
+                break;
+            }
+        }
+
+        if (isUsable) {
+            exploitable.push(zone);
+        }
+    }
+
+    return exploitable;
 }
 
 /**
@@ -357,6 +703,7 @@ function tryPlacePieceOnPanel(panel, piece, panelWidth, panelHeight, blade) {
     for (let j = 0; j < spaces.length; j++) {
         const space = spaces[j];
 
+        // Essai sans rotation
         if (piece.width <= space.width && piece.height <= space.height) {
             const fit = (space.width * space.height) - (piece.width * piece.height);
             if (fit < bestFit) {
@@ -366,6 +713,7 @@ function tryPlacePieceOnPanel(panel, piece, panelWidth, panelHeight, blade) {
             }
         }
 
+        // Essai avec rotation
         if (piece.height <= space.width && piece.width <= space.height) {
             const fit = (space.width * space.height) - (piece.height * piece.width);
             if (fit < bestFit) {
@@ -391,19 +739,23 @@ function tryPlacePieceOnPanel(panel, piece, panelWidth, panelHeight, blade) {
         height: h,
         originalWidth: piece.width,
         originalHeight: piece.height,
+        name: piece.name,
         rotated: rotated,
         id: piece.id
     });
 
     const newSpaces = spaces.filter(function(s) { return s !== bestSpace; });
 
-    // Utilisation améliorée de la découpe guillotine
+    // Découpe guillotine améliorée
+    // Créer l'espace à droite (même hauteur que la pièce)
     const rightSpace = {
         x: bestSpace.x + w + blade,
         y: bestSpace.y,
         width: bestSpace.width - w - blade,
-        height: bestSpace.height
+        height: h
     };
+
+    // Créer l'espace en bas (toute la largeur de l'espace original)
     const bottomSpace = {
         x: bestSpace.x,
         y: bestSpace.y + h + blade,
@@ -523,54 +875,128 @@ function calculateAvailableArea(spaces) {
 
 /**
  * Dessine un seul panneau
- * @param {Array} plan - Plan de coupe du panneau
+ * @param {Object} panel - Panneau avec pièces et métadonnées
  * @param {number} panelWidth - Largeur du panneau
  * @param {number} panelHeight - Hauteur du panneau
  * @returns {HTMLCanvasElement} Canvas avec le plan de coupe
  */
-function drawSinglePanel(plan, panelWidth, panelHeight) {
+function drawSinglePanel(panel, panelWidth, panelHeight) {
     const wrapper = document.getElementById('canvasWrapper');
     const maxWidth = wrapper.clientWidth - 32;
-    const scale = Math.min(maxWidth / panelWidth, 600 / panelHeight);
+    const maxHeight = 600;
+
+    // Calculer le scale pour que le panneau rentre dans l'espace disponible
+    // panelWidth = Longueur (dimension la plus grande, affichée horizontalement)
+    // panelHeight = Largeur (dimension la plus petite, affichée verticalement)
+    const scaleWidth = maxWidth / panelWidth;
+    const scaleHeight = maxHeight / panelHeight;
+    const scale = Math.min(scaleWidth, scaleHeight);
 
     const canvas = document.createElement('canvas');
-    canvas.width = panelWidth * scale;
-    canvas.height = panelHeight * scale;
+    // Arrondir aux pixels entiers pour éviter le flou
+    canvas.width = Math.round(panelWidth * scale);
+    canvas.height = Math.round(panelHeight * scale);
 
     const ctx = canvas.getContext('2d');
 
+    const showWaste = document.getElementById('showWaste') ? document.getElementById('showWaste').checked : true;
+    const showCutLines = document.getElementById('showCutLines') ? document.getElementById('showCutLines').checked : true;
+
+    // Fond du panneau
     ctx.fillStyle = '#f1f5f9';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    // Marge de sécurité (si présente)
+    const safetyMargin = panel.safetyMargin || 0;
+    if (safetyMargin > 0) {
+        const marginScaled = Math.round(safetyMargin * scale);
+        ctx.fillStyle = '#fef3c7';
+        ctx.fillRect(0, 0, canvas.width, marginScaled); // Top
+        ctx.fillRect(0, canvas.height - marginScaled, canvas.width, marginScaled); // Bottom
+        ctx.fillRect(0, 0, marginScaled, canvas.height); // Left
+        ctx.fillRect(canvas.width - marginScaled, 0, marginScaled, canvas.height); // Right
+    }
+
+    // Bordure du panneau
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 2;
     ctx.strokeRect(0, 0, canvas.width, canvas.height);
 
     const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4'];
 
+    const plan = panel.pieces || panel;
+    const effectiveWidth = panel.effectiveWidth || panelWidth;
+    const effectiveHeight = panel.effectiveHeight || panelHeight;
+
+    // Dessiner les chutes (espaces non utilisés) en premier
+    if (showWaste) {
+        // Calculer les zones utilisées
+        const usedAreas = [];
+        for (let i = 0; i < plan.length; i++) {
+            const piece = plan[i];
+            usedAreas.push({
+                x: Math.round((piece.x + safetyMargin) * scale),
+                y: Math.round((piece.y + safetyMargin) * scale),
+                width: Math.round(piece.width * scale),
+                height: Math.round(piece.height * scale)
+            });
+        }
+
+        // Afficher la zone effective disponible
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.1)';
+        ctx.fillRect(
+            Math.round(safetyMargin * scale),
+            Math.round(safetyMargin * scale),
+            Math.round(effectiveWidth * scale),
+            Math.round(effectiveHeight * scale)
+        );
+
+        // Masquer les zones utilisées
+        ctx.globalCompositeOperation = 'destination-out';
+        for (let i = 0; i < usedAreas.length; i++) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+            ctx.fillRect(usedAreas[i].x, usedAreas[i].y, usedAreas[i].width, usedAreas[i].height);
+        }
+        ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // Dessiner les pièces
     for (let i = 0; i < plan.length; i++) {
         const piece = plan[i];
-        const x = piece.x * scale;
-        const y = piece.y * scale;
-        const w = piece.width * scale;
-        const h = piece.height * scale;
+        const x = Math.round((piece.x + safetyMargin) * scale);
+        const y = Math.round((piece.y + safetyMargin) * scale);
+        const w = Math.round(piece.width * scale);
+        const h = Math.round(piece.height * scale);
 
         ctx.fillStyle = colors[i % colors.length];
         ctx.globalAlpha = 0.7;
         ctx.fillRect(x, y, w, h);
 
         ctx.globalAlpha = 1;
-        ctx.strokeStyle = colors[i % colors.length];
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(x, y, w, h);
+
+        if (showCutLines) {
+            ctx.strokeStyle = colors[i % colors.length];
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(x, y, w, h);
+        }
 
         ctx.fillStyle = '#1e293b';
         ctx.font = Math.max(10, 12 * scale) + 'px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
-        const text = piece.originalWidth + '×' + piece.originalHeight + (piece.rotated ? ' ↻' : '');
-        ctx.fillText(text, x + w / 2, y + h / 2);
+        const dimensionText = piece.originalWidth + '×' + piece.originalHeight + (piece.rotated ? ' ↻' : '');
+
+        if (piece.name) {
+            // Afficher le nom et les dimensions sur deux lignes
+            ctx.font = 'bold ' + Math.max(10, 13 * scale) + 'px sans-serif';
+            ctx.fillText(piece.name, x + w / 2, y + h / 2 - Math.max(8, 10 * scale));
+            ctx.font = Math.max(9, 11 * scale) + 'px sans-serif';
+            ctx.fillText(dimensionText, x + w / 2, y + h / 2 + Math.max(8, 10 * scale));
+        } else {
+            // Afficher seulement les dimensions
+            ctx.fillText(dimensionText, x + w / 2, y + h / 2);
+        }
     }
 
     return canvas;
@@ -583,38 +1009,19 @@ function drawSinglePanel(plan, panelWidth, panelHeight) {
  * @returns {string} HTML de la feuille de débit
  */
 function generateCuttingList(pieces) {
-    const grouped = {};
-    let pieceCounter = 1;
-
-    for (let i = 0; i < pieces.length; i++) {
-        const piece = pieces[i];
-        const key = piece.originalWidth + 'x' + piece.originalHeight;
-        if (!grouped[key]) {
-            grouped[key] = {
-                width: piece.originalWidth,
-                height: piece.originalHeight,
-                count: 0,
-                pieceNumbers: []
-            };
-        }
-        grouped[key].count++;
-        grouped[key].pieceNumbers.push(pieceCounter);
-        pieceCounter++;
-    }
-
     let html = '<div class="cutting-list">';
     html += '<h4>Feuille de débit</h4>';
     html += '<table class="cutting-table">';
-    html += '<thead><tr><th>Pièce(s)</th><th>Largeur (mm)</th><th>Hauteur (mm)</th><th>Quantité</th></tr></thead>';
+    html += '<thead><tr><th>N°</th><th>Nom</th><th>Longueur (mm)</th><th>Largeur (mm)</th></tr></thead>';
     html += '<tbody>';
 
-    for (let key in grouped) {
-        const item = grouped[key];
+    for (let i = 0; i < pieces.length; i++) {
+        const piece = pieces[i];
         html += '<tr>';
-        html += '<td>' + item.pieceNumbers.join(', ') + '</td>';
-        html += '<td>' + item.width + '</td>';
-        html += '<td>' + item.height + '</td>';
-        html += '<td>' + item.count + '</td>';
+        html += '<td>' + (i + 1) + '</td>';
+        html += '<td>' + (piece.name || '-') + '</td>';
+        html += '<td>' + piece.originalWidth + '</td>';
+        html += '<td>' + piece.originalHeight + '</td>';
         html += '</tr>';
     }
 
@@ -664,12 +1071,12 @@ function showPanel(index, direction) {
     const previousIndex = currentPanelIndex;
     currentPanelIndex = index;
     const panel = panels[index];
-    const panelWidth = parseInt(document.getElementById('panelWidth').value);
-    const panelHeight = parseInt(document.getElementById('panelHeight').value);
+    const panelWidth = panel.fullWidth || parseInt(document.getElementById('panelWidth').value);
+    const panelHeight = panel.fullHeight || parseInt(document.getElementById('panelHeight').value);
 
     const wrapper = document.getElementById('canvasWrapper');
 
-    const canvas = drawSinglePanel(panel.pieces, panelWidth, panelHeight);
+    const canvas = drawSinglePanel(panel, panelWidth, panelHeight);
 
     if (direction) {
         const animationClass = direction === 'next' ? 'panel-transition' : 'panel-transition-reverse';
@@ -721,6 +1128,77 @@ function nextPanel() {
     if (currentPanelIndex < panels.length - 1) {
         showPanel(currentPanelIndex + 1, 'next');
     }
+}
+
+/**
+ * Met à jour la navigation entre dispositions
+ */
+function updateLayoutNavigation() {
+    const navigation = document.getElementById('layoutNavigation');
+
+    if (!allLayouts || allLayouts.length <= 1) {
+        navigation.style.display = 'none';
+        return;
+    }
+
+    navigation.style.display = 'flex';
+    navigation.style.alignItems = 'center';
+    navigation.style.gap = '0.5rem';
+    navigation.style.padding = '0.5rem';
+    navigation.style.background = '#f1f5f9';
+    navigation.style.borderRadius = '6px';
+    navigation.style.fontSize = '0.8125rem';
+
+    const currentLayout = allLayouts[currentLayoutIndex];
+
+    navigation.innerHTML =
+        '<button type="button" class="nav-button" style="padding: 0.375rem 0.625rem; font-size: 0.75rem;" onclick="previousLayout()" ' + (currentLayoutIndex === 0 ? 'disabled' : '') + '>←</button>' +
+        '<div style="display: flex; flex-direction: column; align-items: center; min-width: 200px;">' +
+            '<div style="font-weight: 600; color: var(--primary);">Disposition ' + (currentLayoutIndex + 1) + '/' + allLayouts.length + '</div>' +
+            '<div style="font-size: 0.75rem; color: var(--text-light);">' + currentLayout.strategy + '</div>' +
+            '<div style="font-size: 0.75rem; margin-top: 0.25rem;">' +
+                '<span style="color: var(--text-light);">Chutes: </span>' +
+                '<span style="font-weight: 600; color: ' + (currentLayout.wastePercentage < 10 ? 'var(--success)' : currentLayout.wastePercentage < 20 ? 'var(--primary)' : 'var(--danger)') + ';">' + currentLayout.wastePercentage.toFixed(1) + '%</span>' +
+                (currentLayout.usableWasteCount > 0 ? ' <span style="color: var(--success);">• ' + currentLayout.usableWasteCount + ' exploitables</span>' : '') +
+            '</div>' +
+        '</div>' +
+        '<button type="button" class="nav-button" style="padding: 0.375rem 0.625rem; font-size: 0.75rem;" onclick="nextLayout()" ' + (currentLayoutIndex === allLayouts.length - 1 ? 'disabled' : '') + '>→</button>';
+}
+
+/**
+ * Passe à la disposition précédente
+ */
+function previousLayout() {
+    if (currentLayoutIndex > 0) {
+        currentLayoutIndex--;
+        switchToLayout(currentLayoutIndex);
+    }
+}
+
+/**
+ * Passe à la disposition suivante
+ */
+function nextLayout() {
+    if (currentLayoutIndex < allLayouts.length - 1) {
+        currentLayoutIndex++;
+        switchToLayout(currentLayoutIndex);
+    }
+}
+
+/**
+ * Change la disposition affichée
+ * @param {number} index - Index de la disposition
+ */
+function switchToLayout(index) {
+    if (index < 0 || index >= allLayouts.length) return;
+
+    currentLayoutIndex = index;
+    panels = allLayouts[index].panels;
+    currentPanelIndex = 0;
+
+    displaySummary(panels);
+    showPanel(currentPanelIndex);
+    updateLayoutNavigation();
 }
 
 /**
@@ -789,7 +1267,7 @@ function generatePDF() {
         canvasContainer.style.marginBottom = '1.5rem';
         canvasContainer.style.textAlign = 'center';
 
-        const canvas = drawSinglePanel(panel.pieces, panelWidth, panelHeight);
+        const canvas = drawSinglePanel(panel, panelWidth, panelHeight);
         canvas.style.display = 'block';
         canvas.style.maxWidth = '600px';
         canvas.style.margin = '0 auto';

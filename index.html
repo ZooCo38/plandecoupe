@@ -30,10 +30,10 @@
                         <label for="panelWidth">Dimensions du panneau (mm)</label>
                         <div class="input-group">
                             <div>
-                                <input type="number" id="panelWidth" name="panelWidth" placeholder="Largeur" value="2500" min="1" aria-label="Largeur du panneau">
+                                <input type="number" id="panelWidth" name="panelWidth" placeholder="Longueur" value="2500" min="1" max="10000" required aria-label="Longueur du panneau">
                             </div>
                             <div>
-                                <input type="number" id="panelHeight" name="panelHeight" placeholder="Hauteur" value="1250" min="1" aria-label="Hauteur du panneau">
+                                <input type="number" id="panelHeight" name="panelHeight" placeholder="Largeur" value="1250" min="1" max="10000" required aria-label="Largeur du panneau">
                             </div>
                         </div>
                     </div>
@@ -49,24 +49,33 @@
                         <label for="panelCost">Prix du panneau (€) - Optionnel</label>
                         <input type="number" id="panelCost" name="panelCost" placeholder="Ex: 45.50" min="0" step="0.01" aria-label="Prix unitaire du panneau">
                     </div>
+                    <div class="form-group">
+                        <label for="safetyMargin">Marge de sécurité (mm)</label>
+                        <input type="number" id="safetyMargin" name="safetyMargin" placeholder="Ex: 5" value="0" min="0" max="15" step="1" aria-label="Marge de sécurité autour du panneau">
+                        <p style="font-size: 0.75rem; color: var(--text-light); margin-top: 0.25rem;">Espace à conserver autour du panneau (0-15mm)</p>
+                    </div>
                 </div>
 
                 <div class="card" style="margin-top: 1rem;">
                     <h2>Ajouter une Pièce</h2>
                     <div class="form-group">
+                        <label for="pieceName">Nom de la pièce (optionnel)</label>
+                        <input type="text" id="pieceName" name="pieceName" placeholder="Ex: Porte gauche, Étagère..." aria-label="Nom de la pièce" style="width: 100%; padding: 0.625rem 0.875rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.875rem;">
+                    </div>
+                    <div class="form-group">
                         <label for="pieceWidth">Dimensions de la pièce (mm)</label>
                         <div class="input-group">
                             <div>
-                                <input type="number" id="pieceWidth" name="pieceWidth" placeholder="Largeur" min="1" aria-label="Largeur de la pièce">
+                                <input type="number" id="pieceWidth" name="pieceWidth" placeholder="Longueur" min="1" max="10000" aria-label="Longueur de la pièce">
                             </div>
                             <div>
-                                <input type="number" id="pieceHeight" name="pieceHeight" placeholder="Hauteur" min="1" aria-label="Hauteur de la pièce">
+                                <input type="number" id="pieceHeight" name="pieceHeight" placeholder="Largeur" min="1" max="10000" aria-label="Largeur de la pièce">
                             </div>
                         </div>
                     </div>
                     <div class="form-group">
                         <label for="pieceQuantity">Quantité</label>
-                        <input type="number" id="pieceQuantity" name="pieceQuantity" placeholder="Nombre de pièces" value="1" min="1" aria-label="Quantité de pièces">
+                        <input type="number" id="pieceQuantity" name="pieceQuantity" placeholder="Nombre de pièces" value="1" min="1" max="1000" aria-label="Quantité de pièces">
                     </div>
                     <button type="button" class="btn-primary" onclick="addPiece()">Ajouter la pièce</button>
 
@@ -86,7 +95,20 @@
                 <div class="canvas-container">
                     <div class="canvas-header">
                         <h2>Schéma de Coupe</h2>
-                        <div id="panelNavigation" class="panel-navigation" style="display: none;"></div>
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-end;">
+                            <div id="layoutNavigation" class="layout-navigation" style="display: none;"></div>
+                            <div id="panelNavigation" class="panel-navigation" style="display: none;"></div>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                        <label style="display: flex; align-items: center; cursor: pointer; user-select: none; font-size: 0.875rem;">
+                            <input type="checkbox" id="showCutLines" checked style="margin-right: 0.5rem; cursor: pointer;">
+                            <span>Afficher les lignes de coupe</span>
+                        </label>
+                        <label style="display: flex; align-items: center; cursor: pointer; user-select: none; font-size: 0.875rem;">
+                            <input type="checkbox" id="showWaste" checked style="margin-right: 0.5rem; cursor: pointer;">
+                            <span>Afficher les chutes</span>
+                        </label>
                     </div>
                     <div id="canvasWrapper">
                         <div class="empty-state">
